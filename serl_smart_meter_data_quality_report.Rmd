@@ -1,0 +1,710 @@
+---
+title: "Smart meter consumption data:  \nData quality report"
+output: 
+  word_document:
+    reference_doc: SERL_word_template_landscape1.docx
+    toc: yes
+---
+
+
+```{r setup, include=FALSE}
+
+ed <- stringr::str_sub(sub('.*edition', '', getwd()),
+                       start = 1, end = 2)
+edition <- paste0("edition", ed)
+
+# Deal with different working directories depending on whether file is knitted from RStudio or
+#   rendered from main.R
+wd <- getwd()
+if(stringr::str_sub(wd, -13) == "documentation") {
+  source(paste0(stringr::str_sub(wd, 1, nchar(wd) - 13), 
+                "/functions/create.info.table.R"))
+} else {
+  source("./functions/create.info.table.R")
+}
+
+library(data.table)
+library(knitr)
+library(captioner)
+library(lubridate)
+library(flextable)
+library(ggplot2)
+library(cowplot)
+library(scales)
+
+
+load_table_data <- FALSE # TRUE if importing data already created by this file
+
+options(scipen = 999) # Don't want to use scientific notation
+
+# Set figure defaults
+fig.h <- 5.5
+fig.w <- 10
+fullwidth <- TRUE
+font.size <- 12
+title.size <- 14
+geom.text.size <- 5
+
+dcp <- 1 # number of decimal places for rounding 
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, 
+                      fig.width = fig.w, fig.height = fig.h, 
+                      fig.fullwidth = fullwidth, dpi = 300)
+```
+
+
+```{r loadData, include = FALSE}
+
+data_folder <- paste0("your/data/folder", edition)
+intermediary_folder <- paste0(data_folder, "/intermediary_rdata/")
+final_rdata_folder <- paste0(data_folder, "/processed_rdata/")
+
+rt_processed_filename = paste0("serl_smart_meter_rt_summary_", edition, ".RDS")
+rt_summary = readRDS(paste0(final_rdata_folder, rt_processed_filename))
+
+dq_input_filename = "DQ_input.RData"
+
+if(load_table_data == FALSE) {
+  daily_processed_filename = paste0("serl_smart_meter_daily_", edition, ".RDS")
+  daily = readRDS(paste0(final_rdata_folder, daily_processed_filename))
+} else {
+  load(paste0(intermediary_folder, dq_input_filename))
+}
+
+sm_doc_input_filename = "sm_data_documentation_input.RData"
+load(paste0(intermediary_folder, sm_doc_input_filename))
+
+```
+
+```{r functions, include = FALSE}
+
+fill.table.meter.exists <-
+  function(device, schedule, participant_data) {
+    length(unique(participant_data[deviceType == device &
+                                     readType == schedule &
+                                     daysRange > 0, PUPRN]))
+  }
+
+my.flex <- function(t, autofit = FALSE) {
+  ft <- flextable(t)
+  ft <- theme_booktabs(ft)
+  ft <- theme_zebra(ft, 
+                    odd_header = rgb(84/255, 141/255, 212/255, 1),
+                    even_body = "transparent",
+                    odd_body = rgb(242/255, 242/255, 242/255, 1))
+  ft <- color(ft, color = "white", part = "header")
+  ft <- italic(ft, italic = TRUE, part = "header")
+  ft <- bold(ft, bold = FALSE, part = "header")
+  if(autofit == TRUE) {
+    ft <- autofit(ft)
+  } else{
+    ft <- set_table_properties(ft, layout = "autofit")
+  }
+  return(ft)
+}
+
+rd <- function(x, d = dcp){
+  # Round to d decimal places and print to the full number of places, even if it ends in 0
+  # x is a vector
+  # Recommend setting dcp (decimal places) at the start of a document
+  format(round(x, digits = d), nsmall = d)
+}
+
+
+
+```
+
+```{r}
+info_tab <- create.info.table(vers = ed, auth = "Ellen Zapata-Webborn, Jessica Few, Clare Hanmer")
+info_tab
+```
+
+
+```{r tableCaptions, include = FALSE}
+fig_caps <- captioner::captioner(prefix = "Figure")
+tab_caps <- captioner::captioner(prefix = "Table")
+
+tab_caps(name = "t.avail.summary.N", 
+         caption = "Number of participants with different minimum levels of valid import ('im') and export ('ex') readings.")
+
+tab_caps(name = "t.avail.summary.P", 
+         caption = "Percentage of participants with different minimum levels of valid import ('im') and export ('ex') readings. ‘Read type possible’ indicates the percentage of participants with that type of read available.")
+
+tab_caps(name = "t.hh.elec.flag", 
+         caption = "Half-hourly electricity active import and export readings: number and percent of readings with each error flag.")
+
+tab_caps(name = "t.hh.reactive.flag", 
+         caption = "Half-hourly electricity reactive import and export readings: number and percent of readings with each error flag.")
+
+tab_caps(name = "t.hh.gas.flag", 
+         caption = "Half-hourly gas import readings: number and percent of readings with each error flag.")
+
+tab_caps(name = "t.daily.flag",
+         caption = "Daily electricity active import readings and daily gas import readings: number and percent of readings with each error flag.")
+
+
+```
+
+
+
+# Data availability
+
+The following tables summarise the amount of valid data among participants recruited in waves 1, 2 and 3. For more information about error definitions, see the Errors section below or the *`r paste0("serl_smart_meter_documentation_edition", ed, ".pdf")`* accompanying document. The data are presented as percentages on the next page. The abbreviation ‘HH’ stands for ‘half-hourly’.
+
+Since the previous edition the smart meter data collection has  moved from UKDS to the Advanced Research Computing Center (ARCC) at UCL. This system migration required several changes to the underlying methods of data collection, and there have been some minor impacts to the data quality. Very little electricity active export data was collected in September, October and November 2022 and February 2023 while some system migration activities were conducted because this data is only stored on the meter for 3 months and we were unable to backfill missing data once migration activities were completed. The same months have low levels of reactive import and export data for the same reason. The data quality for half hourly electricity import readings has reduced with a greater level of missing data. Daily electricity import data quality is reduced for September and October 2022 and April to June 2023 with a greater number of invalid read times (i.e. read time is not midnight) during these periods. This may be associated with the BST time zone during these periods and is something we will investigate. As always, feedback on the SERL data or data quality is greatly appreciated. 
+
+Additionally, since the previous edition we have increased the minimum threshold for flagging 'high' electricity active export readings, as domestic solar panel arrays have increased in size and some households are now exporting more than our original 4kW cut-off. Therefore a few export reads previously flagged as errors will now be marked valid in this edition. 
+
+The first row of Table 1 shows the number of participants for which the read type above was possible. Over 4,500 participants have at least 90% of all (non-reactive) import readings valid and nearly 700 with at least 75% of all export readings valid. Some participants have “read type possible” for half-hourly data but not for daily. This is either because these participants withdrew consent after we started collecting half-hourly data but before daily reading collection began, or because they have a SMETS1 meter that doesn't collect daily reads. 
+
+Note that where daily readings are invalid or unavailable it is often possible to impute the reading with the sum of the half-hourly readings for that day. Where possible, a valid half-hourly sum is provided for comparison/imputation with the daily reads. 
+
+```{r availabilityStats, include = FALSE}
+
+if(load_table_data == FALSE) {
+  avail.perc.for.table <- c(100, 99, 98, 95, 90, 75, 50, 25, 10, 5, 0)
+  nrows <- length(avail.perc.for.table) + 1
+  
+  n_id <- length(unique(rt_summary$PUPRN))
+  
+  t.avail.summary <- data.table(stat = rep(NA_character_, nrows),
+                                DgasN = rep(NA_real_, nrows),
+                                HgasN = rep(NA_real_, nrows),
+                                DelecN = rep(NA_real_, nrows),
+                                HelecN = rep(NA_real_, nrows),
+                                
+                                HreactImportN = rep(NA_real_, nrows),
+                                HreactExportN = rep(NA_real_, nrows),
+                                HexportN = rep(NA_real_, nrows),
+                                
+                                DgasP = rep(NA_character_, nrows),
+                                HgasP = rep(NA_character_, nrows),
+                                DelecP = rep(NA_character_, nrows),
+                                HelecP = rep(NA_character_, nrows),
+                                
+                                HreactImportP = rep(NA_character_, nrows),
+                                HreactExportP = rep(NA_character_, nrows),
+                                HexportP = rep(NA_character_, nrows))
+                                
+  deviceCols <- rep(c("GPF", "GPF", rep("ESME", 5)), 2)
+  scheduleCols <- rep(c(rep(c("DL", "AI"), 2), "RI", "RE", "AE"), 2)
+
+  data.cols.per.table <- (ncol(t.avail.summary) - 1) / 2
+  t.avail.cols <-colnames(t.avail.summary) 
+  
+  # Fill first column
+  t.avail.summary[1, stat := "Read type possible"]
+  
+  for(i in 2:nrows) {
+    t.avail.summary[i, stat := paste(">= ", avail.perc.for.table[i-1], "% valid", sep = "")]
+  }
+  t.avail.summary[2, stat := "100% valid"]
+  
+  # Fill first row
+  for(j in 2:(data.cols.per.table + 1)) {
+    t.avail.summary[1, eval(t.avail.cols[j]) := fill.table.meter.exists(deviceCols[j-1],
+                                                                        scheduleCols[j-1],
+                                                                        rt_summary)]
+    
+    t.avail.summary[1, eval(t.avail.cols[j+data.cols.per.table]) := rd(get(t.avail.cols[j]) / 
+                                                                            n_id * 100, 
+                                                                          1)]
+  }
+  
+  # Fill remaining rows
+  for(i in 2:nrows) {
+    for(j in 2:(data.cols.per.table + 1)) {
+      t.avail.summary[i, eval(t.avail.cols[j]) := rt_summary[deviceType == deviceCols[j-1] &
+                                                              readType == scheduleCols[j-1] &
+                                                              percValid >= avail.perc.for.table[i-1], 
+                                                            .N]]
+      t.avail.summary[i, eval(t.avail.cols[j+data.cols.per.table]) := rd(get(t.avail.cols[j]) / 
+                                                                              t.avail.summary[1, get(t.avail.cols[j])] *
+                                                                              100, 
+                                                                            1)]
+    }
+  }
+  
+  
+  
+  
+  colnames(t.avail.summary)  <- c(" ", "Daily gas (im)", "HH gas (im)", 
+                                 "Daily elec (active im)", "HH elec (active im)",
+                                 "HH elec (reactive im)", "HH elec (reactive ex)",
+                                 "HH elec (active ex)",
+                                 "Daily gas (im) (%)", "HH gas (im) (%)", 
+                                 "Daily elec (active im) (%)", "HH elec (active im) (%)",
+                                 "HH elec (reactive im) (%)", "HH elec (reactive ex) (%)",
+                                 "HH elec (active ex) (%)")
+  } else {
+    data.cols.per.table <- (ncol(t.avail.summary) - 1) / 2
+}
+
+t.avail.summary.N <- my.flex(t.avail.summary[, c(1:6, 8, 7)])
+
+t.avail.summary.P <- my.flex(t.avail.summary[, c(1, 9:13, 15, 14)])
+
+```
+
+
+
+`r tab_caps("t.avail.summary.N")`
+```{r}
+t.avail.summary.N
+```
+
+`r tab_caps("t.avail.summary.P", display = "cite")` shows the data from `r tab_caps("t.avail.summary.N", display = "cite")` presented as percentages. The first row of data (‘Read type possible’) shows the percent of all participants for which we expect to have each type of read. Approximately 77% of households have a gas meter registered with the DCC (i.e. a SMETS2 gas meter or an upgraded SMETS1 meter). The percentages in the rows that follow are percentage of valid readings from those meters for which we expect the read type, e.g. `r t.avail.summary[6, 12]`% of households with a smart meter that we could collect data from have at least 90% of their half-hourly electricity active import readings available and valid. 6.1% of participants have at least 1 export read. 
+
+`r tab_caps("t.avail.summary.P")`
+```{r}
+t.avail.summary.P
+```
+
+
+```{r overTime, include = FALSE}
+
+perc_threshold <- 0.75
+
+over_time_data_filepath <- paste0(intermediary_folder, "over_time_plot_data75.RData")
+
+if(load_table_data == TRUE) { # False if want to overwrite the file if it exists
+  load(over_time_data_file)
+} else {
+    # Change plots to line charts with all time across x axis
+    daily[, month := month(Read_date_effective_local)]
+    daily[, y := year(Read_date_effective_local)]
+    # Daily
+    daily_valid <- melt(daily[Valid_hh_sum_or_daily_elec == TRUE | 
+                                Valid_hh_sum_or_daily_gas == TRUE],
+                        id.vars = c("PUPRN",
+                                    "y",
+                                    "month"),
+                        measure.vars = c("Valid_hh_sum_or_daily_elec",
+                                         "Valid_hh_sum_or_daily_gas"))
+    
+    daily_monthly_counts <- daily_valid[value == TRUE, .N, keyby = .(PUPRN, y, month, variable)]
+    daily_monthly_counts[, start_date := as.Date(paste(y, "-", month, "-01", sep = ""))]
+    daily_monthly_counts[, d_in_m := days_in_month(start_date)]
+    daily_monthly_counts[, prpn_valid := N / d_in_m]
+    
+    daily_monthly_summary <- daily_monthly_counts[prpn_valid >= perc_threshold, .N, 
+                                                  keyby = .(variable, start_date)]
+
+    
+    # Half-hourly
+    
+    hh_file_names = list.files(paste(final_rdata_folder, "serl_smart_meter_hh_", edition,
+                                     "/", sep=""), 
+                               pattern = ".RDS")
+    
+    t <- proc.time()
+    hh_monthly_counts <- lapply(hh_file_names, function(x) {
+      hh = readRDS(paste(
+        final_rdata_folder,
+        "serl_smart_meter_hh_",
+        edition,
+        "/",
+        x,
+        sep = ""
+      ))
+      yr <- hh[1, year(Read_date_effective_local)]
+      m <- hh[1, month(Read_date_effective_local)]
+      hh[, `:=`(y = yr, month = m)]
+      hh_valid <- melt(hh, 
+                       id.vars = c("PUPRN", 
+                                   "y",
+                                   "month"),
+                       measure.vars =c("Elec_act_imp_flag",
+                                       "Elec_react_imp_flag", 
+                                       "Gas_flag",
+                                       "Elec_act_exp_flag",
+                                       "Elec_react_exp_flag"))
+      hh_monthly_counts <- hh_valid[value == TRUE, .N, 
+                                    keyby = .(PUPRN, y, month, variable)]
+      start <-  as.Date(paste(yr, "-", m, "-01", sep = ""))
+      tot_hh <- days_in_month(start) * 48
+      if(tot_hh == 3) {tot_hh <- tot_hh - 2}
+      if(tot_hh == 10) {tot_hh <- tot_hh + 2}
+      hh_monthly_counts[, start_date := start]
+      hh_monthly_counts[, hh_in_m := tot_hh]
+    })
+    proc.time() - t
+    
+    hh_monthly_counts_all <- rbindlist(hh_monthly_counts)
+    hh_monthly_counts_all[, prpn_valid := N / hh_in_m]
+    
+    hh_monthly_summary <- hh_monthly_counts_all[prpn_valid >= perc_threshold, .N, 
+                                                  keyby = .(variable, start_date)]
+
+    
+    # Daily and hh
+    
+    all_monthly_summary <- rbind(hh_monthly_summary, daily_monthly_summary)
+    
+    save(all_monthly_summary, 
+         file = over_time_data_filepath)
+  }
+
+all_over_time <-
+  ggplot(all_monthly_summary[(variable != "Elec_react_exp_flag") & (variable != "Elec_react_imp_flag")],
+         aes(
+           x = start_date,
+           y = N,
+           colour = as.factor(variable),
+           shape = as.factor(variable)
+         )) +
+  geom_line() +
+  geom_point() +
+  scale_color_discrete(
+    name = "Data type",
+    breaks = sort(unique(all_monthly_summary[(variable != "Elec_react_exp_flag") & (variable != "Elec_react_imp_flag"),
+                                             variable])),
+    labels = c(
+      "hh elec active import",
+      #"hh elec reactive import",
+      "hh gas",
+      "hh elec active export",
+      "daily elec active import",
+      "daily gas"
+    )
+  ) + 
+  scale_shape_discrete(
+     name = "Data type",
+    breaks = sort(unique(all_monthly_summary[(variable != "Elec_react_exp_flag") & (variable != "Elec_react_imp_flag"),
+                                             variable])),
+    labels = c(
+      "hh elec active import",
+      #"hh elec reactive import",
+      "hh gas",
+      "hh elec active export",
+      "daily elec active import",
+      "daily gas"
+    )
+
+  ) + 
+  theme(legend.position = c(0.15, 0.7)) + 
+  xlab("Month") + 
+  ylab(paste("Number of participants with >", perc_threshold*100 ,
+             "% valid reads by month", sep = ""))
+
+fig_caps(name = "all_over_time", 
+          caption = paste("Number of participants in the SERL Observatory with at least ",
+                          perc_threshold * 100,
+                          "% data valid per month. Daily valid includes days with a valid sum of half-hourly reads where the daily read is not valid/available.",
+                          sep = ""))
+
+
+```
+
+## Number of participants with data over time
+
+The following figure shows how many participants have at least `r perc_threshold*100`% of each month's data available and flagged as valid. A participant's earliest read date depends on the date they signed up (we can collect up to 1 year of historic data from consent date (3 months for export data)), when their SMETS2 meter was installed (or upgraded if SMETS1), and when they moved into the house (if they moved in within the year preceding sign up). 
+
+For daily data we see a steady increase in the numbers from September 2018 (1 year before the first sign up) until January 2021, reflecting the availability of historic data for participants recruited in different waves. Half-hourly data collection dates back to the start of 2019 and increases in a similar way to the daily data. The half-hourly reactive import and export data is not shown on this figure, as we believe very few researchers are using this data stream. The half-hourly reactive import and export data is only stored on the meter for 3 months and so data availability increases sharply around 3 months before each recruitment wave. 
+
+The slow reduction from the start of 2021 reflects the fact that all historic data for participants has been collected and collection is now in ongoing/longitudinal mode, with a small number of participants moving away or withdrawing consent each month and no new participant recruitment. As described above, the technical and operational issues collecting electricity data in the latter part of 2022 and 2023 relating to system migration activities are visible in this figure.  
+
+
+
+```{r fig.width = fig.w }
+all_over_time
+```
+`r fig_caps("all_over_time")`
+
+```{r overTime50, include = FALSE}
+
+perc_threshold <- 0.5
+
+over_time_data_filepath <- paste0(intermediary_folder, "over_time_plot_data50.RData")
+
+if(load_table_data == TRUE) { 
+  load(over_time_data_filepath)
+} else {
+    # Change plots to line charts with all time across x axis
+    daily[, month := month(Read_date_effective_local)]
+    daily[, y := year(Read_date_effective_local)]
+    # Daily
+    daily_valid <- melt(daily[Valid_hh_sum_or_daily_elec == TRUE | 
+                                Valid_hh_sum_or_daily_gas == TRUE],
+                        id.vars = c("PUPRN",
+                                    "y",
+                                    "month"),
+                        measure.vars = c("Valid_hh_sum_or_daily_elec",
+                                         "Valid_hh_sum_or_daily_gas"))
+    
+    daily_monthly_counts <- daily_valid[value == TRUE, .N, keyby = .(PUPRN, y, month, variable)]
+    daily_monthly_counts[, start_date := as.Date(paste(y, "-", month, "-01", sep = ""))]
+    daily_monthly_counts[, d_in_m := days_in_month(start_date)]
+    daily_monthly_counts[, prpn_valid := N / d_in_m]
+    
+    daily_monthly_summary <- daily_monthly_counts[prpn_valid >= perc_threshold, .N, 
+                                                  keyby = .(variable, start_date)]
+
+    
+    # Half-hourly
+    
+    hh_file_names = list.files(paste(final_rdata_folder, "serl_smart_meter_hh_", edition,
+                                     "/", sep=""), 
+                               pattern = ".RDS")
+    
+    t <- proc.time()
+    hh_monthly_counts <- lapply(hh_file_names, function(x) {
+      hh = readRDS(paste(
+        final_rdata_folder,
+        "serl_smart_meter_hh_",
+        edition,
+        "/",
+        x,
+        sep = ""
+      ))
+      yr <- hh[1, year(Read_date_effective_local)]
+      m <- hh[1, month(Read_date_effective_local)]
+      hh[, `:=`(y = yr, month = m)]
+      hh_valid <- melt(hh, 
+                       id.vars = c("PUPRN", 
+                                   "y",
+                                   "month"),
+                       measure.vars =c("Elec_act_imp_flag",
+                                       "Elec_react_imp_flag", 
+                                       "Gas_flag",
+                                       "Elec_act_exp_flag",
+                                       "Elec_react_exp_flag"))
+      hh_monthly_counts <- hh_valid[value == TRUE, .N, 
+                                    keyby = .(PUPRN, y, month, variable)]
+      start <-  as.Date(paste(yr, "-", m, "-01", sep = ""))
+      tot_hh <- days_in_month(start) * 48
+      if(tot_hh == 3) {tot_hh <- tot_hh - 2}
+      if(tot_hh == 10) {tot_hh <- tot_hh + 2}
+      hh_monthly_counts[, start_date := start]
+      hh_monthly_counts[, hh_in_m := tot_hh]
+    })
+    proc.time() - t
+    
+    hh_monthly_counts_all <- rbindlist(hh_monthly_counts)
+    hh_monthly_counts_all[, prpn_valid := N / hh_in_m]
+    
+    hh_monthly_summary <- hh_monthly_counts_all[prpn_valid >= perc_threshold, .N, 
+                                                  keyby = .(variable, start_date)]
+
+    
+    # Daily and hh
+    
+    all_monthly_summary <- rbind(hh_monthly_summary, daily_monthly_summary)
+    
+    save(all_monthly_summary, 
+         file = over_time_data_filepath)
+  }
+
+all_over_time50 <-
+  ggplot(all_monthly_summary[variable != "Elec_react_exp_flag"],
+         aes(
+           x = start_date,
+           y = N,
+           colour = as.factor(variable),
+           shape = as.factor(variable)
+         )) +
+  geom_line() +
+  geom_point() +
+  scale_color_discrete(
+    name = "Data type",
+    breaks = sort(unique(all_monthly_summary[variable != "Elec_react_exp_flag",
+                                             variable])),
+    labels = c(
+      "hh elec active import",
+      "hh elec reactive import",
+      "hh gas",
+      "hh elec active export",
+      "daily elec active import",
+      "daily gas"
+    )
+  ) + 
+  scale_shape_discrete(
+     name = "Data type",
+    breaks = sort(unique(all_monthly_summary[variable != "Elec_react_exp_flag",
+                                             variable])),
+    labels = c(
+      "hh elec active import",
+      "hh elec reactive import",
+      "hh gas",
+      "hh elec active export",
+      "daily elec active import",
+      "daily gas"
+    )
+
+  ) + 
+  theme(legend.position = c(0.15, 0.7)) + 
+  xlab("Month") + 
+  ylab(paste("Number of participants with >", perc_threshold*100 ,
+             "% valid reads by month", sep = ""))
+
+fig_caps(name = "all_over_time50", 
+          caption = paste("Number of participants in the SERL Observatory with at least ",
+                          perc_threshold * 100,
+                          "% data valid per month. Note that reactive export is the same as active export so is not shown here. Daily valid includes days with a valid sum of half-hourly reads where the daily read is not valid/available.",
+                          sep = ""))
+
+
+```
+
+
+```{r fig.width = fig.w, include = FALSE}
+all_over_time50
+```
+
+
+# Errors
+
+More details about the error flags/codes can be found in the *`r paste0("serl_smart_meter_documentation_edition", ed, ".pdf")`* accompanying document.
+
+
+```{r errorTables, include = FALSE}
+
+long_rt <- melt(rt_summary,
+                id.vars = c("PUPRN",
+                            "deviceType",
+                            "readType"),
+                measure.vars = c("valid",
+                                 "missing",
+                                 "maxRead",
+                                 "highRead",
+                                 "negative",
+                                 "wrongUnits",
+                                 "validWrongTime",
+                                 "suspiciousZero"))
+total_by_error <- long_rt[, sum(value), keyby = .(deviceType,
+                                                  readType,
+                                                  variable)]
+setnames(total_by_error, "V1", "total")
+sums <- total_by_error[, sum(total), keyby = .(deviceType,
+                                               readType)]
+total_by_error <- sums[total_by_error]
+total_by_error[, perc := round(total / V1 * 100, 1)]
+
+
+flags <- data.table(
+  Flag = c(1:-6),
+  Meaning = c(
+    "Valid",
+    "Missing",
+    "Max read",
+    "Very high but not max",
+    "Negative",
+    "Elec in kWh",
+    "Valid read but invalid read time",
+    "Suspicious zero"
+  ))
+  
+read_names <- total_by_error[, .N, keyby = .(deviceType, readType)]
+read_names[, name := c("Act elec export",
+                       "Act elec import",
+                       "Act elec import",
+                       "React elec export",
+                       "React elec import",
+                       "Gas import",
+                       "Gas import")]
+
+make.error.table <- function(dType, rType) {
+  out <- flags
+  out[, `:=`(N = total_by_error[deviceType == dType & 
+                              readType == rType, total],
+             P =  total_by_error[deviceType == dType & 
+                              readType == rType, perc])]
+  colnames(out) <- c("Flag",
+                     "Meaning",
+                     paste(read_names[deviceType == dType & 
+                                        readType == rType, name], " (N)", sep = ""),
+                      paste(read_names[deviceType == dType & 
+                                        readType == rType, name], " (%)", sep = ""))
+  return(out)
+}
+  
+t.hh.elec.flag <- my.flex(cbind(make.error.table("ESME", "AI"),
+                              make.error.table("ESME", "AE")[, 3:4]))
+
+t.hh.reactive.flag <- my.flex(cbind(make.error.table("ESME", "RI"),
+                              make.error.table("ESME", "RE")[, 3:4]))
+
+t.hh.gas.flag <- my.flex(make.error.table("GPF", "AI"))
+
+t.daily.flag <- my.flex(cbind(make.error.table("ESME", "DL"),
+                              make.error.table("GPF", "DL")[, 3:4]))
+
+```
+
+
+## Half-hourly data
+
+The half-hourly data runs from `r first_read_date_hh` to `r last_read_date_hh` and `r n_hh_p` participants have half-hourly reads. For each half-hourly read, for each participant, the following tables show the number of errors and valid reads in the half-hourly electricity and gas datasets. Abbreviations: ‘act’ (active), ‘react' (reactive) and ‘elec’ (electricity).
+
+Note that all `r n_pp` participants have an electricity meter and `r n_no_gas` participants don’t have a gas meter (`r rd(n_no_gas/n_pp*100, 1)`%). The main issue for half-hourly electricity active import and export reads is missing data. 
+
+
+`r tab_caps("t.hh.elec.flag")`
+```{r}
+t.hh.elec.flag
+```
+
+The electricity reactive import and export reads mainly have issues with missing data. 
+
+`r tab_caps("t.hh.reactive.flag")`
+```{r}
+t.hh.reactive.flag
+```
+
+The half-hourly gas reads have similar availability to the half-hourly electricity active import reads, but suffer from a few incredibly high readings. The 'max read' error flag (-1) is when the read is the largest number storable/transmittable (all 1s in binary). For more details see the aforementioned smart meter data documentation.
+
+`r tab_caps("t.hh.gas.flag")`
+```{r}
+t.hh.gas.flag
+```
+
+
+## Daily Data
+
+The daily data runs from `r first_read_date_d` to `r last_read_date_d`. A total of `r n_pp` participants are included in these datasets. Of these, `r n_d_p` have either daily reads or valid half-hourly sums to substitute for a daily read. For each daily read, for each participant, the following table shows the number of errors and valid reads in the daily electricity and gas datasets. Note that in this table the gas and electricity reads are included together, as the only daily read types are gas import and electricity active import. There is greater availability of the gas data than the electricity data. Around 9% of the electricity data was suspected to be recorded in kWh not in Wh as prescribed by the Smart Energy Code. Around 2% of daily electricity readings are zero and flagged as suspicious; the vast majority of these readings are from meters which start recording zero for some or all of British Summer Time. See the aforementioned smart meter documentation for more details.  
+
+
+`r tab_caps("t.daily.flag")`
+```{r}
+t.daily.flag
+```
+
+
+# Further reading
+
+More information can be found about the SERL data in our 2021 open access journal paper [The SERL Observatory Dataset: Longitudinal Smart Meter Electricity and Gas Data, Survey, EPC and Climate data for over 13,000 Households in Great Britain](mdpi.com/1996-1073/14/21/6934/htm#). SERL Statistical Reports are made available via the [SERL website](www.serl.ac.uk/key-documents/reports/). 
+
+
+
+```{r saving, include = FALSE}
+
+if(load_table_data == FALSE) {
+  save(
+    first_read_date_d,
+    last_read_date_d,
+    n_d_p,
+    nrow_d,
+    ncol_d,
+    ncol_hh,
+    nrow_reads,
+    ncol_reads,
+    t.avail.summary,
+    t.hh.elec.flag,
+    t.hh.reactive.flag,
+    t.hh.gas.flag,
+    t.daily.flag,
+    first_read_date_hh,
+    last_read_date_hh,
+    n_hh_p,
+    n_no_gas,
+    n_pp,
+    n_d_p,
+    n_id,
+    file = paste0(intermediary_folder, dq_input_filename)
+  )
+}
+
+
+
+```
+

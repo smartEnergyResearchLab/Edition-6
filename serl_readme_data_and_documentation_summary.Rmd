@@ -1,0 +1,474 @@
+---
+title: "SERL data and documentation:  \nReadme"
+output: 
+  word_document:
+    reference_doc: SERL_word_template_portrait1.docx
+    toc: yes
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+options(scipen = 999) # Don't want to use scientific notation
+
+# load relevant libraries
+library(data.table)
+library(stringr)
+library(knitr)
+library(captioner)
+library(lubridate)
+library(flextable)
+library(officer)
+library(ggplot2)
+
+```
+
+```{r defineInputs, include = FALSE}
+
+load_table_data <- FALSE # TRUE if we've run this file before and don't want to re-process the data (only edit the text, formatting, etc.)
+
+#load(paste(location_RData, climate_output_name, "/", "climate_summary_edition", release,  ".RData", sep = ""))
+#load(climate_stats_file)
+load(paste(intermediary_folder, "/DQ_input.RData", sep="")) #ed 05 version had this commented out
+#load(epc_stats_file) 
+load(paste(intermediary_folder, "/sm_data_documentation_input.RData", sep=""))
+
+participant_summary <- fread(paste(final_csv_folder,"/serl_participant_summary_",release_version,".csv", sep="" ))
+
+survey_new_edition <- fread(paste(final_csv_folder, "serl_survey_data_", release_version, ".csv", sep = ""))
+covid <- fread(paste(final_csv_folder, "serl_covid19_survey_data_", release_version, ".csv", sep = ""))
+COLsurvey <- fread(paste(final_csv_folder, "serl_2023_follow_up_survey_data_", release_version, ".csv", sep = ""))
+tariff <- fread(paste(final_csv_folder,"serl_tariff_data_", release_version, ".csv", sep = ""))
+epc<-fread(paste(final_csv_folder,"serl_epc_data_", release_version, ".csv", sep = ""))
+aggregated_stats = fread(paste(final_csv_folder, "serl_energy_use_in_GB_domestic_buildings_2021_aggregated_statistics_", release_version, ".csv", sep = ""))
+
+# Define plotting/reporting variables for the markdown output
+fig.h <- 6
+fig.w <- 10
+fullwidth <- TRUE
+font.size <- 18
+geom.text.size <- 5
+
+```
+
+```{r functions, include = FALSE}
+
+add.commas <- function(n){
+   return(format(n, 
+          big.mark = ",",
+          scientific = FALSE))
+}
+count.active.participants <- function(this_date) {
+  p_details[Consent_start <= this_date & 
+              (is.na(Consent_end) | 
+                 Consent_end > this_date), .N]
+}
+
+my.flex <- function(t, autofit = TRUE) {
+  ft <- flextable(t)
+  ft <- theme_booktabs(ft)
+  ft <- theme_zebra(ft, 
+                    odd_header = rgb(84/255, 141/255, 212/255, 1),
+                    even_body = "transparent",
+                    odd_body = rgb(242/255, 242/255, 242/255, 1))
+  ft <- color(ft, color = "white", part = "header")
+  ft <- italic(ft, italic = TRUE, part = "header")
+  ft <- bold(ft, bold = FALSE, part = "header")
+  if(autofit == TRUE) {
+    ft <- autofit(ft)
+  } else{
+    ft <- set_table_properties(ft, width = 1, layout = "autofit")
+  }
+  return(ft)
+}
+
+tab_caps <- captioner::captioner(prefix = "Table")
+
+```
+
+```{r}
+info_tab <- create.info.table(auth = "Ellen Webborn, Jessica Few, Eoghan McKenna, Clare Hanmer")
+info_tab
+```
+
+```{r participation, include = FALSE}
+
+p_details <- fread(participant_details_file)
+
+p_details[, Consent_start := as.Date(Consent_given_date, format = "%Y/%m/%d")]#these columns already in file?
+p_details[, Consent_end := as.Date(WoC_CoT_effective_date, format = "%Y/%m/%d")]
+
+earliest <- "2019-08-01"
+latest <- most_recent_smart_meter_date
+
+dates <- seq(as.Date(paste(year(earliest), "-", month(earliest), "-", "01", sep = "")),
+             as.Date(paste(year(latest), "-", month(latest), "-", "01", sep = "")),
+             by = "month")
+
+p_count <- data.table(d = dates,
+                     Year = year(dates),
+                     Month = month(dates))
+
+p_count[, Number := sapply(dates, FUN = count.active.participants)]
+
+p_count[, Change := 0]
+for(i in 2:nrow(p_count)) {
+p_count[i, Change := p_count[i, Number] - p_count[i-1, Number]]
+}
+
+p_count[, d := NULL]
+p_count[, Year := as.character(Year)]
+p_count[, Year := str_remove(Year, ",")]
+
+setnames(p_count, "Number", "Number of participants")
+
+save(p_count, file = paste(final_rdata_folder, "participant_count.RData", sep = ""))
+
+p_count <- my.flex(p_count)
+tab_caps("p_count", 
+        caption = "Number of participants in SERL by year and month. Numbers decrease when participants withdraw consent or move house and do not include participants who have requested full erasure of their data.")
+
+```
+
+# Introduction
+
+## Smart Energy Research Lab (SERL)
+
+The [Smart Energy Research Lab](https://www.serl.ac.uk) (SERL) delivers a unique energy data resource that provides secure access to high resolution energy data from smart meters, linked to relevant contextual data, for research in the public interest. SERL enables a broad range of multi-disciplinary, socio-technical research relating to energy consumption in residential buildings. SERL-enabled research informs government policy, stimulates innovation in the transition to a net zero energy system, and helps provide solutions to the energy trilemma (secruity, affordability an environmental sustainability). More information about SERL data and research can be found on the [SERL website](https://www.serl.ac.uk):
+
+* [SERL data](https://www.serl.ac.uk/researchers/)
+
+* [Research using SERL data](https://www.serl.ac.uk/projects/)
+
+
+## Participant recruitment
+
+Participant recruitment began in August 2019. Approximately 1700 participants were recruited from central and southern England and from Wales as part of a pilot study that tested different recruitment strategies. The second recruitment wave took place in August-September 2020, and the third wave at the start of 2021. SERL has recruited over 13,000 households, using a randomly stratified sample, intended to give a regionally representative across England, Scotland and Wales. Recruitment is also designed to be representative of each Index of Multiple Deprivation (IMD) quintile; an area-based relative measure of deprivation. For more information about the recruitment process (in particular the testing of recruitment methods in the first wave), see our paper [Increasing response rates and improving research design: Learnings from the Smart Energy Research Lab in the United Kingdom](https://doi.org/10.1016/j.erss.2021.102312) or the fully open-access [pre-print](osf.io/f82b7/).
+
+`r tab_caps("p_count")`
+```{r}
+p_count
+```
+
+# SERL data
+
+This document accompanies the SERL Observatory Edition `r release` dataset. The data are available in a secure virtual environment to UK-based accredited researchers working on approved projects (see Data Access section for more details). For a detailed description of the dataset, collection methods and basic results (based on the Edition 3 data) see our fully open-access paper [The SERL Observatory Dataset: Longitudinal Smart Meter Electricity and Gas Data, Survey, EPC and Climate data for over 13,000 Households in Great Britain](mdpi.com/1996-1073/14/21/6934/htm#).
+
+Smart meter data collection start dates vary by participant; the earliest start date is in August 2018. This data release contains all data available up to and including `r most_recent_smart_meter_date` which includes participant households recruited in Waves 1, 2 and 3.  
+
+The datasets can be linked at the household level using the pseudo-anonymous "PUPRN" (pseudo-UPRN (Unique Property Reference Number)) identifier included in each dataset. The climate data can be linked through the "grid_cell" provided with the participant summary (smart meter) dataset. 
+
+From the 4th edition onwards we are also providing the data collected from the SERL Covid-19 survey; sent to wave 1 participants in May 2020 to understand their circumstances during the first lockdown. More information can be found in the Covid-19 survey documentation. 
+
+From the 6th edition onwards we are also providing the data collected from the SERL 2023 "Cost of living" survey sent to all participants. Further details are can be found in the 2023 survey documentation.
+
+
+## Smart meter data
+
+In order to participate a household must have a DCC-enrolled electricity smart meter (SMETS2 or DCC-enrolled SMETS1). In GB smart meters collect electricity and gas (where available) data at 30-minute resolution. If a household has embedded generation such as solar PV, the electricity readings show the net demand for each half-hour (always non-negative) and separate readings show net export (always non-negative). Reactive power data is also available. In addition to the half-hourly data, daily reads are also provided, which can be used for data quality checking. Note that SMETS1 meters do not provide daily reads, and that the daily sums of half-hourly reads are included in the SERL daily dataset for data imputation and comparison. 
+
+As of `r most_recent_smart_meter_date`, `r add.commas(n_d_p)` participants have daily smart meter reads (or valid half-hourly sums to create daily reads) in the dataset (at some point in time) and `r add.commas(n_hh_p)` have half-hourly reads in the dataset. `r add.commas(n_no_gas)` participants do not have a gas meter that we can access (although some will still have gas central heating we are unable to access the data, perhaps because they do not have an installed/commissioned gas smart meter). 
+
+### Data files
+
+There are two folders containing smart meter data, and one further data file relating to smart meter data:
+
+* _`r paste("serl_smart_meter_daily_", release_version, sep = "")`_  
+   + folder containing yearly files of electricity and gas readings with some additional derived columns. Individual files are named _serl\_smart\_meter\_daily\_YYYY\_editionxx.csv_, where YYYY is the year the readings were recorded and xx is the SERL edition number
+   + `r add.commas(nrow_d)` records
+   + `r ncol_d` fields
+
+* _`r paste("serl_smart_meter_hh_", release_version, sep = "")`_ 
+   + folder containing monthly half-hourly electricity and gas readings with some additional derived columns (note that this dataset also includes reactive readings and export readings where available). Individual files are named _serl\_half\_hourly\_YYYY\_MM.csv_, where YYYY and MM are the year and month the readings were recorded respectively.
+   + `r length(nrows_hh)` monthly files
+   + between `r add.commas(min(nrows_hh))` and `r add.commas(max(nrows_hh))` records in each file
+   + `r ncol_hh` fields   
+
+* _`r paste("serl_smart_meter_rt_summary_", release_version , ".csv", sep = "")`_ 
+   + data quality summary for each read type for each participant (such as number of errors found by type) and basic read statistics (such as mean and maximum)
+   + `r add.commas(nrow_reads)` records
+   + `r ncol_reads` fields
+   
+
+### Documentation
+
+There are two documents accompanying the smart meter data:
+
+* _`r paste("serl_smart_meter_documentation_", release_version, ".pdf", sep = "")`:_ smart meter documentation describing the four datasets, the fields, and details about derived variables;
+
+* _`r paste("serl_smart_meter_data_quality_report_", release_version, ".pdf", sep = "")`:_ smart meter data quality report summarising various data statistics, data availability, and the prevalence of missing and potentially erroneous reads.
+
+
+### Code
+
+The R code used to process the raw half-hourly and daily datasets (creating the four datasets outlined above) is available with this data release. All code and documentation is (or will shortly be) available on the [SERL GitHub site](https://github.com/smartEnergyResearchLab) which will contain the most up-to-date versions of all non-disclosive files. 
+
+## Survey data
+
+When participants sign up they are encouraged to complete a survey about their household and dwelling online or on a paper form. The online and offline versions contain the same questions and response options, and the data are provided together, with a variable indicating the response mode. The online survey has the advantage of automatic question routing and basic answer checking (e.g. flagging up the wrong input type). 
+
+Survey data exists for `r add.commas(nrow(survey_new_edition))` participants. 
+
+### Data file
+
+The survey data provided with this release relates to the participants who were recruited before `r most_recent_smart_meter_date`. In addition to the csv file containing the survey response data we also provide a data dictionary that shows how the response codes relate to the survey response options for each question. The survey-related files are:
+
+* _`r paste("serl_survey_data_", release_version, ".csv", sep = "")`_ 
+   + `r add.commas(nrow(survey_new_edition))` records
+   + `r ncol(survey_new_edition)` fields
+   
+* _`r paste("serl_survey_data_dictionary_", release_version, ".csv", sep = "")`_ 
+
+
+### Documentation
+
+The following documents accompany the survey data:
+
+* _`r paste("serl_survey_documentation_", release_version, ".pdf", sep = "")`:_ documentation for the survey data, summarising the responses to each question and comparing the results with national surveys where possible, commenting on evidence of bias;
+
+- *serl_pilot_recruitment_survey_copy.pdf*: the postal survey sent to households in the first (pilot) recruitment wave (same questions and options as the online survey)
+
+- *serl_main_recruitment_survey_copy.pdf*: the postal survey sent to households in the main recruitment waves (very similar to the survey used in the pilot study, and same questions and options as the online survey).
+
+
+### Code
+
+The R code used to process the raw survey data is available with this data release. All code and documentation is (or will shortly be) available on the [SERL GitHub site](https://github.com/smartEnergyResearchLab) which will contain the most up-to-date versions of all non-disclosive files, including the survey data cleaning file. 
+
+## Covid-19 survey
+
+When the Covid-19 pandemic started and the first lockdown was introduced in the UK, we anticipated significant impacts to the way households use energy in their homes. To facilitate research to understand these changes, the SERL team and colleagues at UCL created a survey for our participants, designed to help researchers understand the reasons for any changes we might find in their smart meter data. This new survey focused on changes to the household and energy-related behaviours. Covid-19 survey data exists for `r add.commas(nrow(covid))` participants. 
+
+### Data file
+
+In addition to the csv file containing the Covid-19 survey response data we also provide a data dictionary that shows how the response codes relate to the survey response options for each question. The Covid-19 survey-related files are:
+
+- *`r paste("serl_covid19_survey_data_", release_version, ".csv", sep = "")`*
+  + `r add.commas(nrow(covid))` records
+  + `r add.commas(ncol(covid))` fields
+
+- *`r paste("serl_covid19_survey_data_dictionary_", release_version, ".csv", sep = "")`*
+
+### Documentation
+
+The following documents accompany the survey data:
+
+* _`r paste("serl_covid19_survey_documentation_", release_version, ".pdf", sep = "")`:_ documentation for the survey data, explaining the context and how the survey was conducted
+
+- *serl_covid19_postal_survey_copy.pdf*: the postal survey sent to households in the first (pilot) recruitment wave
+
+- *serl_covid19_postal_survey_data_entry_copy.pdf*: the postal survey with response codes
+
+- *serl_covid19_online_survey_data_entry_copy.pdf*: the online survey with response codes. 
+
+
+
+### Code
+
+Code used to prepare the Covid-19 data will be made available shortly on the [SERL GitHub site](https://github.com/smartEnergyResearchLab) which will contain the most up-to-date versions of all non-disclosive files. The code file is
+
+- *serl_covid19_data_prep.ipynb*
+
+## 2023 Cost of Living survey
+
+The winter of 2022/23 saw a large increase in energy prices in the UK. The SERL team developed a survey to assess energy use practices during this winter. The survey was sent in the post to 12,001 households on 2 February 2023. A weblink was included to give householders the opportunity to complete the survey online.  Data exists for `r add.commas(nrow(COLsurvey))` participants. 
+
+### Data file
+
+The csv file containing the 2023 survey response data is:
+
+- *`r paste("serl_2023_COL_survey_data_", release_version, ".csv", sep = "")`*
+  + `r add.commas(nrow(COLsurvey))` records
+  + `r add.commas(ncol(COLsurvey))` fields
+
+
+### Documentation
+
+The following documents accompany the survey data:
+
+* _`r paste("serl_2023_follow_up_survey_documentation_", release_version, ".pdf", sep = "")`:_ documentation for the survey data, explaining the context and how the survey was conducted
+
+
+- *serl_2023_follow_up_survey.pdf*: a copy of the postal version of the survey. 
+
+
+
+
+### Code
+
+Code used to prepare the 2023 COL survey data will be made available shortly on the [SERL GitHub site](https://github.com/smartEnergyResearchLab) which will contain the most up-to-date versions of all non-disclosive files.
+
+## Energy Performance Certificate (EPC) data
+
+If available, each household's Energy Performance Certificate (EPC) is also provided (the most recent is used). Data linking is done by matching house number and postcode and checking the first line of the address. There are currently `r nrow(epc)` households with an EPC record in the dataset (`r round(nrow(epc) / nrow(participant_summary) * 100, 1)`)% of SERL participants. This is because a substantial percentage of the domestic housing stock does not have an EPC. Each data release contains the most up-to-date EPC record at time of collection for each household. Note that from Edition 04 we now provide EPC data for Scotland as well as England and Wales. 
+
+For more information about EPC data see the [England and Wales EPC data website](https://epc.opendatacommunities.org/) or the [Scottish EPC data website](scottishepcregister.org.uk).
+
+### Data file
+
+The EPC dataset is:
+
+* _`r paste("serl_epc_data_", release_version, ".csv", sep = "")`_
+   + `r add.commas(nrow(epc))` records
+   + `r ncol(epc)` fields
+
+
+### Documentation
+
+The EPC data documentation details all fields included in the dataset and gives information about the values included:
+
+* _`r paste("serl_epc_documentation_", release_version, ".pdf", sep = "")`_
+
+
+### Code
+After address identifiers were removed and replaced by our PUPRN pseudo-identifiers no further processing was performed, therefore there is no code associated with this dataset. 
+
+
+
+## Climate data
+
+Climate reanalysis data is also provided for each household up to `r #climate_end_date`. The data from the Copernicus/ECMWF [ERA5 hourly reanalysis data](https://cds.climate.copernicus.eu/cdsapp#!/dataset/reanalysis-era5-single-levels?tab=overview). Currently the climate data consists of 24 variables. The data can be linked with SERL participants using the 'grid_cell' variable.
+
+This is reanalysis data based on recorded data from many weather stations across GB, at a horizontal resolution of 0.25 x 0.25 degrees latitude and longitude (approximately 28 x 28 km). More information about spatial resolution is available [here](https://confluence.ecmwf.int/display/CKB/ERA5%3A+What+is+the+spatial+reference). ERA5 documentation is available [here](https://confluence.ecmwf.int/display/CKB/ERA5%3A+data+documentation).
+
+### Data file
+
+The climate dataset is split into monthly files:
+
+* _`r paste("serl_climate_data_", release_version, sep = "")`_ 
+   + folder containing monthly climate data, individual files are named _`r paste("serl_climate_data", release_version, "_YYYY_MM.csv", sep = "")`_ where YYYY and MM are the year and month the records relate to
+   + `r length(list.files(final_climate_folder))` files
+Depending on the number of days in a month, there are between 312,480 and 345,960 records per monthly file.
+
+### Documentation
+
+Documentation describing the dataset and the fields available is given in the file:
+
+* _`r paste("serl_climate_documentation_", release_version, ".pdf", sep = "")`_
+
+
+### Code
+No processing has been done on the data, therefore there is no code associated with this dataset. 
+
+
+## Participant summary
+
+A summary file containing basic information about each participant is provided. This file contains one row per participant gives details such as region, IMD quintile, whether an EPC exists for the dwelling and a summary of data availability. 
+
+### Data file
+
+There is one data file:
+
+* _`r paste("serl_participant_summary_", release_version, ".csv", sep = "")`_
+   + `r add.commas(nrow(participant_summary))` records
+   + `r ncol(participant_summary)` fields
+
+
+### Documentation
+
+Documentation describing the dataset and the fields available is given in the file:
+
+* _`r paste("serl_participant_summary_documentation_", release_version, ".pdf", sep = "")`_
+
+### Code 
+Code for generating this file is contained within the smart meter preparation code.
+All code and documentation is (or will shortly be) available on the [SERL GitHub site](https://github.com/smartEnergyResearchLab) which will contain the most up-to-date versions of all non-disclosive files. 
+
+## Tariff data
+
+Released for the first time as part of the 5th edition, the tariff data contains monthly snapshots of tariff information stored on the smart meter. We have taken the unusual decision to release the tariff data to researchers in a raw un-processed state, and to provide access to ‘tariff parsing’ code we are developing which researchers can use and adapt to process the tariff data for their research. The tariff data is provided ‘as is’, without the usual data quality assurance documentation, and researchers are advised to use this data and the accompanying code with caution. This is due to the urgent need for tariff data for research given the current cost-of-living crisis. 
+
+The data file contains one row per meter type per participant per month with available data (for `r add.commas(length(unique(tariff$puprn)))` participants).
+
+### Data file
+
+There is one data file:
+
+* _`r paste("serl_tariff_data_", release_version, ".csv", sep = "")`_
+   + `r add.commas(nrow(tariff))` records
+   + `r ncol(tariff)` fields
+
+
+### Documentation
+
+Documentation describing the dataset and the fields available is given in the file:
+
+* _`r paste("serl_tariff_documentation_", release_version, ".pdf", sep = "")`_
+
+### Code 
+
+This data is unprocessed, however within the secure lab environment (via GitLab) we are making a python code project available to researchers that will be updated as the SERL team refines and develops the work further. This code should be considered a work in progress and treated with caution. The code project can be found on GitLab, entitled "SERL Tariff Parser".
+
+
+## Aggregated energy statistics
+
+A dataset of aggregated energy (net electricity and gas) statistics for participants in the SERL Observatory, summarising energy consumption in 2020 and 2021. The statistics summarise energy use at half-hourly, monthly and yearly resolution via means, standard deviations and quartiles of energy use, and are broken down by selected contextual variables (e.g. building age, number of occupants). This dataset is available as a safeguarded dataset outside the Secure Environment to registered UKDS users via [SN 8963](https://beta.ukdataservice.ac.uk/datacatalogue/studies/study?id=8963). We provide the dataset as part of the SERL Observatory release to facilitate its use by researchers with access to the full underlying data. 
+
+A report based on a selected subset of the results in this dataset is available via the [SERL website](https://serl.ac.uk/key-documents/reports/). We intend to update this dataset in line with the release of future statistical reports, at present we expect this to be an annual update. 
+
+### Data file
+
+There is one data file:
+
+* _`r paste("serl_energy_use_in_GB_domestic_buildings_2021_aggregated_statistics_", release_version, ".csv", sep = "")`_
+   + `r add.commas(nrow(aggregated_stats))` record
+   + `r ncol(aggregated_stats)` fields
+
+
+### Documentation
+
+Documentation describing the process of generating these statistics from the underlying SERL dataset, and descriptions of the fields in the data are provided in the file:
+
+* _`r paste("serl_energy_use_in_GB_domestic_buildings_2021_aggregated_statistics_documentation_", release_version, ".pdf", sep = "")`_
+
+### Code 
+
+The Python code used to process this dataset is (or will shortly be) available on the [SERL GitHub site](https://github.com/smartEnergyResearchLab) which will contain the most up-to-date versions of all non-disclosive files. The code will also be made available inside the secure data processing environment. 
+
+## British Summer Time dates
+
+Since the daily data are recorded in local time and the clocks changing affects energy use in UTC time, we have created a file detailing the start and end dates of British Summer Time covering the SERL data collection period and a few years beyond. 
+
+This file is called *bst_dates_to_2024.csv* and does not have its own documentation as it's self explanatory. There are 14 rows and 3 columns: *Read_date_effective_local*, *type* (start or end of BST) and *n_hh* (the number of half-hours on the days the clocks change (46 or 50)). 
+
+
+# Data access
+
+Access to the SERL Observatory datasets is provided via a secure virtual lab environment and is restricted to accredited researchers working on approved projects. This aligns with the [5 Safes](https://www.ukdataservice.ac.uk/manage-data/legal-ethical/access-control/five-safes) protocols used by the UK Data Service (UKDS). Currently, SERL only provides controlled datasets via a secure lab environment.
+
+The process to obtain access to controlled data is appropriately rigorous so it is strongly recommended that researchers read the detailed documentation associated with the SERL catalogue record ([SN 8666](https://beta.ukdataservice.ac.uk/datacatalogue/studies/study?id=8666)) in the UKDS data catalogue to ensure that SERL data is appropriate for your research project before starting the application process.
+
+Summary of steps and rough timelines:
+
+1. Accredited researcher status (safe Researcher training and exam): _1 month_
+2. University ethics approval: this varies by institution but allow at least _3-4 weeks_
+3. Project application (UKDS triage and SERL Data Governance Board review): _4-6 weeks_
+
+Therefore, if starting from scratch, it is recommended that researchers allow _at least 3 months_ for completion of the above processes before access to the data is required.
+
+Full details are available here: [Accessing SERL Observatory data – information for researchers (PDF)](https://serl.ac.uk/wp-content/uploads/2020/08/Accessing-SERL-Observatory-data-info-for-researchers-v04.pdf)
+
+The [Accessing SERL data](https://serl.ac.uk/researchers/) page on the SERL website has more information for researchers including a set of FAQs. 
+
+
+# More information
+
+The following links provide additional information about SERL and data access for researchers. If you require any further information please contact **info@serl.ac.uk**
+
+* [SERL website](https://serl.ac.uk/) 
+
+* [SERL GitHub site](https://github.com/smartEnergyResearchLab)
+
+* [UKDS Observatory Data Record](https://beta.ukdataservice.ac.uk/datacatalogue/studies/study?id=8666) Study Number (SN) 8666
+
+* [The SERL Observatory Dataset: Longitudinal Smart Meter Electricity and Gas Data, Survey, EPC and Climate data for over 13,000 Households in Great Britain](mdpi.com/1996-1073/14/21/6934/htm#)
+
+* [Increasing response rates and improving research design: Learnings from the Smart Energy Research Lab in the United Kingdom](https://doi.org/10.1016/j.erss.2021.102312) or the fully open-access [pre-print](osf.io/f82b7/)
+
+* [Utilising smart meter data for research and innovation in the UK](https://www.eceee.org/library/conference_proceedings/eceee_Summer_Studies/2019/8-buildings-technologies-and-systems-beyond-energy-efficiency/utilising-smart-meter-data-for-research-and-innovation-in-the-uk/) (a 2019 ECEEE Conference paper about SERL)
+
+
+
+
+

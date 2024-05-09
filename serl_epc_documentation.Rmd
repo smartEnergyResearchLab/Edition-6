@@ -1,0 +1,267 @@
+---
+title: "EPC data:  \nTechnical documentation"
+output: 
+  word_document:
+    reference_doc: SERL_word_template_portrait1.docx
+    toc: no
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+ed <- stringr::str_sub(sub('.*edition', '', getwd()),
+                       start = 1, end = 2)
+edition <- paste0("edition", ed)
+
+# load relevant libraries
+library(data.table)
+library(lubridate)
+library(knitr)
+library(captioner)
+library(flextable)
+library(officer)
+library(stringr)
+
+# load required functions
+wd <- getwd()
+if(stringr::str_sub(wd, -13) == "documentation") {
+  source(paste0(stringr::str_sub(wd, 1, nchar(wd) - 13), 
+                "/functions/create.info.table.R"))
+} else {
+  source("./functions/create.info.table.R")
+}
+```
+
+
+
+```{r defineInputs, include=FALSE}
+# load the processed epc data
+data_folder <- paste0("your/folder/here", edition)
+intermediary_folder <- paste0(data_folder, "/intermediary_rdata/")
+final_csv_folder <- paste0(data_folder, "/processed_csv/")
+epc_file = paste0("serl_epc_data_edition",ed, ".csv")
+epc <- fread(paste0(final_csv_folder, epc_file))
+# load the epc documentation input file (NB this is the columns which are only in Eng/Wal or Scotland. Easier to identify these in initial processing)
+load(paste0(intermediary_folder, "epc_documentation_input.RData"))
+
+```
+
+```{r functions, include = FALSE}
+
+get.cases <- function(i, d = epc) {
+  v <- colnames(d)[i]
+  tmp <- epc[, .N, keyby = v]
+  tmp2 <- data.table(Variable = rep(v, nrow(tmp)),
+                     Value = tmp[, 1],
+                     Cases = tmp[, 2])
+  colnames(tmp2) <- c("Variable", "Value", "Cases")
+  return(tmp2)
+}
+
+my.flex <- function(t, autofit = FALSE) {
+  ft <- flextable(t)
+  ft <- theme_booktabs(ft)
+  ft <- theme_zebra(ft, 
+                    odd_header = rgb(84/255, 141/255, 212/255, 1),
+                    even_body = "transparent",
+                    odd_body = rgb(242/255, 242/255, 242/255, 1))
+  ft <- color(ft, color = "white", part = "header")
+  ft <- italic(ft, italic = TRUE, part = "header")
+  ft <- bold(ft, bold = FALSE, part = "header")
+  if(autofit == TRUE) {
+    ft <- autofit(ft)
+  } else{
+    ft <- set_table_properties(ft, layout = "autofit")
+  }
+  return(ft)
+}
+
+survey.flex <- function(t, autofit = TRUE) {
+  ft <- flextable(t)
+  ft <- theme_booktabs(ft)
+  ft <- border(ft, border.top = fp_border(color = "gray") )
+  ft <- bg(ft, bg = rgb(84/255, 141/255, 212/255, 1), 
+            part = "header")
+  ft <- color(ft, color = "white", part = "header")
+  ft <- italic(ft, italic = TRUE, part = "header")
+  ft <- bold(ft, bold = FALSE, part = "header")
+
+  ft <- set_table_properties(ft, width = 1, layout = "autofit")
+  
+  ft <- border_inner_h(ft, border = fp_border(color = "gray"))
+  return(ft)
+}
+
+```
+
+
+```{r}
+info_tab <- create.info.table(auth = "Ellen Zapata-Webborn, Jessica Few")
+info_tab
+```
+
+
+```{r captions, include = FALSE}
+tab_caps <- captioner::captioner(prefix = "Table")
+tab_caps(name = "epc_fields", 
+         caption = "All EPC variables, the number of unique values found for each variable, the variable (R) class, and an example from the dataset. In some cases examples are invented (for statistical disclosure control) as the count for unique reads is very low; in these instances examples take the same format as the real data.")
+
+tab_caps(name = "summary_short", 
+         caption = "The number and percent of each value found in the dataset for each variable with fewer than 10 unique values found. Note that number is rounded down to the nearest 10 for statistical disclosure control and values with less than 10 participants have been removed. The percent is the rounded number as a percent of total (so might not sum to 100%). ")
+
+# tab_caps(name = "stats", 
+#          caption = "Basic statistics for integer and numeric variables. 'n' is the number of values used in the calculations (i.e. the non-NA values). Min and max are given to 2 significant figures.")
+
+```
+
+```{r summary, include = FALSE}
+
+ncol_epc <- ncol(epc)
+nrow_epc <- nrow(epc)
+
+# Create a summary of the values for each variable
+
+test_list <- lapply(2:ncol_epc, get.cases)
+
+summary <- rbindlist(test_list)
+# summary <- rbind(data.table(Variable = "PUPRN",
+#                       Value = "-",
+#                       Cases = nrow_epc), 
+#                  summary)
+
+summary[, Percent := round(Cases / nrow_epc * 100, 2)]
+
+
+epc_fields <- data.table(Variable = colnames(epc),
+                         class = sapply(epc, class),
+                         example = rep(NA_character_, ncol_epc), 
+                         countriesAvailable = 'All',
+                         position = 1:ncol(epc)
+                         )
+setkey(epc_fields, Variable)
+tmp <- summary[, .N, keyby = Variable]
+epc_fields <- tmp[epc_fields]
+setnames(epc_fields, 
+         old = "N", 
+         new = "uniqueValues")
+
+epc_fields[Variable == "PUPRN", 
+           uniqueValues := nrow_epc]
+
+setkey(epc_fields, position)
+
+epc_fields[epc_fields$Variable %in% cols_not_in_Scot]$countriesAvailable = "England and Wales"
+epc_fields[epc_fields$Variable %in% cols_only_in_Scot]$countriesAvailable = "Scotland"
+
+# Give non-disclosive examples for each variable (N>10)
+exclusions <- c("", "NA", "NO DATA!")
+
+for(j in colnames(epc)[2:ncol(epc)]) {
+  tmp <- epc[!get(j) %in% exclusions & 
+               !str_detect(get(j), "N/A") &
+               !is.na(get(j)), .N, keyby = list(get(j))]
+  if(nrow(tmp) == 0) {
+    tmp <- epc[, .N, keyby = get(j)]
+  }
+  tmp <- tmp[N >= 10]
+  i <- floor(runif(n = 1, min = 1, max = nrow(tmp) + 1))
+  epc_fields[Variable == j, example := tmp[i, get]]
+}
+
+
+for(i in 1:nrow(epc_fields)) {
+  epc_fields[i, N := epc[get(epc_fields[i, Variable]) == epc_fields[i, example], .N]]
+}
+
+epc_fields[N < 10, ] # Check all NA 
+
+epc_fields[Variable == "PUPRN", 
+           example := "1ABC2DE3"] # invented, check not in the data
+epc[epc$PUPRN == "1ABC2DE3"] # should be empty
+
+
+epc_fields[Variable == "lodgementDatetime", 
+           example := "02/10/2010 14:51"] # invented, check not in the data
+epc[epc$lodgementDatetime == "02/10/2010 14:51"] # should be empty
+
+
+# Check fixed
+for(i in 1:nrow(epc_fields)) {
+  epc_fields[i, N := epc[get(epc_fields[i, Variable]) == epc_fields[i, example], .N]]
+}
+
+check_N_over10 = epc_fields[N < 10, ]
+
+
+for_short_summary <- epc_fields[uniqueValues < 10, Variable]
+
+summary_short <- summary[Variable %in% for_short_summary | Variable == "PUPRN",]
+
+# Round cases DOWN to nearest 10 for SDC
+summary_short[, Cases := 10 * round((Cases - 4.999) / 10)]
+summary_short[, Percent := round(Cases / epc_fields[Variable == "PUPRN", uniqueValues] * 100, 1)]
+# remove cases with rounded N = 0
+summary_short<- summary_short[Cases>0, ]
+
+# Tables
+
+## epc_fields
+epc_fields[, `:=`(position = NULL,
+                  N = NULL)]
+colnames(epc_fields) <- c("variable", "n unique values", "class", 
+                          "example", "countries available")
+epc_fields <- survey.flex(epc_fields)
+
+
+## summary_short
+colnames(summary_short) <- c("variable", "value", "number (rounded)", "percent")
+summary_short <- survey.flex(summary_short)
+summary_short <- merge_v(summary_short, j = ~ variable)
+summary_short <- fix_border_issues(summary_short)
+
+
+```
+
+# Introduction
+
+This document describes the Energy Performance Certificate (EPC) data collected for SERL participants, stored in the file *`r epc_file`*. The data contains `r ncol_epc` columns and `r nrow_epc` rows (one row per participant with available EPC data). The number of participants included is likely to increase from one edition to the next as new EPCs are lodged for households that previously did not have one. EPC data was only available for England and Wales until the 4th Observatory edition; since then EPC data has been available for England, Wales and Scotland. 
+
+This document lists the EPC variables available along with basic information about the values for each variable such as number of unique values and statistics for numerical variables. There are some differences between the English and Welsh EPCs versus the Scottish EPCs, both in terms of the variables available and the structure of the data. In particular, for the Scottish data if there are multiple types of an element in a dwelling then these are recorded in the relevant column and separated by "|" [ASCII (decimal) 124], whereas only one type is recorded per element for England and Wales. A guide to the variables in the English and Welsh data is available [here](https://epc.opendatacommunities.org/docs/guidance#glossary_domestic), and for Scottish data is available [here](https://serl.ac.uk/key-documents/scottish-epc-documentation/). 
+
+Data were collected with the Domestic Energy Performance Certificates API using the house number and postcode (details for England and Wales [here](https://epc.opendatacommunities.org/docs/api/domestic)). Details about downloading the Scottish data are available [here](https://serl.ac.uk/key-documents/scottish-epc-documentation/). Where more than one EPC is registered for an address the most recent is provided.  
+
+The data have not been modified from the original source except for the removal of address data (replaced with our PUPRN (a unique identifier) used in the other SERL datasets), replacement of empty strings with NA values, and removal of the Scottish variable 'addendumText' as this did not contain data for any participants. Note that data quality analysis has not been performed for this dataset.
+
+# Data summary
+
+Table 1 lists all variables currently available in the SERL EPC dataset. The number of unique values is given, alongside the R data class and an example value from the dataset. The countries for which each variable is available is also given, with 'All' meaning the variable is available in both the English and Welsh and Scottish EPC data. 
+
+For variables with fewer than 10 unique values in the EPC dataset, Table 2 shows the number of records with each value and the percent with this value (or non-value in the case of N/A or 'NO DATA!' etc.). We also include PUPRN to show the number of records. 
+
+
+`r tab_caps("epc_fields")`
+```{r}
+epc_fields
+```
+
+
+
+`r tab_caps("summary_short")`
+```{r}
+summary_short
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+

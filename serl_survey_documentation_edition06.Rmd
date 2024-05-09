@@ -1,0 +1,176 @@
+---
+title: "Survey data:  \nTechnical documentation"
+output:
+  word_document:
+    reference_doc: SERL_word_template_portrait1.docx
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+ed <- stringr::str_sub(sub('.*edition', '', getwd()),
+                       start = 1, end = 2)
+edition <- paste0("edition", ed)
+
+#ed <- "06"
+# load relevant libraries
+# source(paste(“your/folder/here”, 
+#              ed, 
+#              "/Code/add_packages_to_path.R", sep = ""))
+
+# load relevant libraries
+library(data.table)
+library(knitr)
+library(captioner)
+library(lubridate)
+library(flextable)
+library(officer)
+
+# Deal with different working directories depending on whether file is knitted from RStudio or
+#   rendered from main.R
+wd <- getwd()
+if(stringr::str_sub(wd, -13) == "documentation") {
+  source(paste0(stringr::str_sub(wd, 1, nchar(wd) - 13), 
+                "/functions/create.info.table.R"))
+} else {
+  source("./functions/create.info.table.R")
+}
+
+
+# Import all filenames, locations, source function files
+# source(paste(“your/folder/here” , 
+#              ed, 
+#              "/Code/setup_edition", ed, ".R", sep = ""))
+
+# survey_questions <- fread(paste(location_processed, 
+#                                 "serl_survey_data_dictionary_edition", ed, ".csv", 
+#                                 sep = ""))
+# survey_new_edition <- fread(paste(location_processed, 
+#                                   "serl_survey_data_edition", ed, ".csv", sep = ""))
+
+survey_questions <- fread(paste0("your/folder/here",
+                                 ed, "/survey/serl_survey_data_dictionary_edition", ed, ".csv"))
+
+survey_new_edition <- fread(paste0("your/folder/here",
+                                   ed, "/survey/serl_survey_data_edition", ed, ".csv"))
+# Define plotting/reporting variables for the markdown output
+fig.h <- 6
+fig.w <- 10
+fullwidth <- TRUE
+font.size <- 18
+geom.text.size <- 5
+dcp <- 2 # number of decimal places for rounding 
+
+info_tab <- create.info.table(auth = "Ellen Zapata-Webborn, Jessica Few, Clare Hanmer",
+                              vers = ed)
+
+fig_caps <- captioner::captioner(prefix = "Figure")
+tab_caps <- captioner::captioner(prefix = "Table")
+```
+
+
+```{r}
+info_tab
+```
+
+
+```{r functions, include = FALSE}
+
+survey.flex <- function(t, autofit = TRUE) {
+  ft <- flextable(t)
+  ft <- theme_booktabs(ft)
+  ft <- border(ft, border.top = fp_border(color = "gray") )
+  ft <- bg(ft, bg = rgb(84/255, 141/255, 212/255, 1), 
+            part = "header")
+  ft <- color(ft, color = "white", part = "header")
+  ft <- italic(ft, italic = TRUE, part = "header")
+  ft <- bold(ft, bold = FALSE, part = "header")
+  ft <- set_table_properties(ft, width = 1, layout = "autofit")
+  
+  ft <- border_inner_h(ft, border = fp_border(color = "gray"))
+  return(ft)
+}
+
+
+```
+
+
+# Introduction
+
+This document describes the survey responses data table. This table includes the original survey responses data in addition to several columns that describe, summarise or attempt to clean some of the responses. Files currently available relating to the survey data are:
+
+- *`r paste0("serl_survey_data_edition", ed, ".csv")`*: the survey data collected during the SERL recruitment wave 1 (pilot study, September 2019) and wave 2 (September 2019)
+
+- *`r paste0("serl_survey_data_dictionary_edition", ed, ".csv")`*: A table matching the variables and response codes to the survey questions and responses
+
+- *serl_pilot_recruitment_survey_copy.pdf*: the postal survey sent to households in the first (pilot) recruitment wave 
+
+- *serl_main_recruitment_survey_copy.pdf*: the postal survey sent to households in the main recruitment waves (very similar to the survey used in the pilot study, see details below).
+
+This document is structured as follows. First we describe the data collection process. The next section details the survey response columns and the meaning of the values they can take, the final section describes the remaining data fields. 
+
+# Data collection
+
+## Wave 1
+The SERL pilot study recruited the first wave of participants during September and October 2019. 18,000 households in central and southern England and in Wales were sent up to 4 letters inviting them to participate in SERL, of which approximately 1700 signed up. All mailings encouraged sign-up online, and some of the mailings provided a paper consent form and survey to sign up by post. The consent form giving access to their smart meter data was mandatory for participation. Completion of the survey was encouraged but not required. 
+
+## Wave 2
+Wave 2 recruitment took place in September 2019, recruiting approximately 3200 additional participants. Households were sent up to 3 mailings, the first two offering online sign-up only and the third offering postal and online sign-up. Completion of the survey was encouraged but not required. The survey was almost identical to the wave 1 survey, with the exception of question A5 which offered more response options. In wave 1 we found that some people were clearly reporting their preferred thermostat temperature in Fahrenheit and so two boxes were provided for wave 2 participants giving an option of either degrees C or degrees F. 
+
+## Wave 3 
+Wave 3 recruitment took place in January 2021, recruiting approximately 8000 additional participants. As for wave 2, households were sent up to 3 mailings, the first two offering online sign-up only and the third offering postal and online sign-up. The language used by Welsh participants who completed the postal survey was not recorded for this wave, so the language is reported as 'unknown'. Completion of the survey was encouraged but not required. The survey was identical to the wave 2 survey. The survey data from edition 3 onward contains an additional column, A5_err, which flags likely errors in the responses to question A5.
+
+The survey dataset contains `r nrow(survey_new_edition)` rows (one per participant who started the survey) and `r ncol(survey_new_edition)` columns. There may be differences in numbers of participants in different editions of the SERL Observatory due to participant withdrawal with full erasure of data. The data has been processed to allow for as much comparability between survey versions and completion methods (online or postal) as possible. Since online respondents were forced to skip questions automatically based on their responses, this was imposed in the data cleaning process on postal participants if they did not skip as instructed (see survey questions for skipping logic).
+
+# Survey data summary table
+
+`r tab_caps("presentable2", display = "cite")` has the following columns:
+
+- *Survey field:* variable name (*e.g.* 'Region') or question number. In some cases the questions come in multiple parts, in which case they have names such as "A13_01" and "A13_02" or "A1501" and "A1502". Some questions allowed for multiple options to be selected, in which case each option has its own column in the table with possible answers yes (selected) and no (not selected). For example question A3 has ten options, with columns named A301 - A310. There is also a box for participants to write free text. In this case that option is called "A3_Other". 
+
+- *Approximate question:* The corresponding survey question (sometimes with approximate wording for brevity). See the electronic copy of the paper survey for the exact question wording and options.
+
+- *Possible values:* the pre-defined values that code different response options (where the responses are pre-defined). If free text is available then this may be "NA" (such as for *A3_Other*) or the free text response may not be listed (such as for *A5* which asks for the temperature households set their thermostat to).
+
+- *Value meanings:* the response option in the survey corresponding to each value code.
+
+- *Variable Type:* the type of variable: *primary* (asked in the survey), *derived* (derived from the data, such as an error code or sum of responses), and *inherited* (information inherited from other sources, such as the participant id or the survey version supplied).
+
+Note that the variables ending '_new' are the 'corrected' variables following basic/obvious error correction (e.g. tally notation used, or ages of occupants given rather than the number in each age/sex category). In the case of D1 - D3 the 'new' variables included filling these responses for the single-occupant households from their earlier data (since the household data represents the survey completer).
+
+Code used for processing will be made available shortly on the SERL github repository [github.com/smartEnergyResearchLab](github.com/smartEnergyResearchLab). 
+
+```{r surveyQuestions, include = FALSE}
+
+presentable2 <- survey_questions[, list(Variable, 
+                                        QuestionOrMeaning, 
+                                        Value, 
+                                        ValueDescription, 
+                                        Type)] 
+
+presentable2 <- survey.flex(presentable2)
+presentable2 <- merge_v(presentable2, j = ~ Variable + QuestionOrMeaning)
+presentable2<- fix_border_issues(presentable2)
+
+presentable2 <- set_header_labels(presentable2, 
+                  Variable = "Survey field", 
+                  QuestionOrMeaning = "Approximate question", 
+                  Type = "Variable Type",
+                  Value = "Possible values", 
+                  ValueDescription = "Value meanings")
+
+tab_caps(name = "presentable2", 
+         caption = "Guide to the survey data: variables and response codes.")
+
+
+```
+
+
+`r tab_caps("presentable2")`
+```{r}
+presentable2
+```
+
+
+
